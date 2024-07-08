@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Document</title>
+</head>
+<body>
+  <script>
+    // demo5
+    let jobQueue = new Set()
+    const p = Promise.resolve()
+    let isFlushing = false
+
+    function flushJob() {
+      if(isFlushing) return
+      isFlushing = true
+      p.then(() => {
+        jobQueue.forEach(job => job())
+      }).finally(() => {
+        isFlushing = false
+      })
+    }
+
+    let activeEffect; // 全局变量存储副作用函数
+    const effectStack = []
+    function effect(fn, options = {}) { // effect用于注册副作用函数 新增options
+      const effectFn = () => {
+        cleanup(effectFn)
+        activeEffect = effectFn
+        effectStack.push(effectFn)
+        const res = fn() // 新增
+        effectStack.pop()
+        activeEffect = effectStack[effectStack.length - 1]
+
+        return res // 新增
+      }
+      effectFn.options = options // 新增
+      effectFn.deps = []
+      if(!options.lazy) {
+        effectFn()
+      }
+      return effectFn
+    }
+
+    function cleanup(effectFn) {
+      for(let i = 0; i < effectFn.deps.length; i++) {
+        const deps = effectFn.deps[i]
+        deps.delete(effectFn)
+      }
+      effectFn.deps.length = 0
+    }
+
+    let bucket = new WeakMap()
+    const data = { foo: '1', bar: '2', count: 1 }
+    const obj = new Proxy(data, {
+      get(target, key){
+        track(target, key)
+        return target[key]
+      },
+      set(target, key, newVal) {
+        target[key] = newVal
+        trigger(target, key)
+      }
+    })
+
+    function track(target, key) { // 获取值
+      if(!activeEffect) return // 如果没有副作用直接return
+      let depsMap = bucket.get(target) // 根据target取出对应的depsMap
+      if(!depsMap) {
+        bucket.set(target, (depsMap = new Map())) // 如果depsMap不存在就新建一个Map并与target相关联
+        // console.log(bucket);
+      }
+      let deps = depsMap.get(key)
+      if(!deps) {
+        depsMap.set(key, (deps = new Set()))
+      }
+      deps.add(activeEffect)
+      activeEffect.deps.push(deps)
+    }
+    
+    function trigger(target, key) { // 设置值
+      const depsMap = bucket.get(target)
+      if(!depsMap) return
+      const effects = depsMap.get(key)
+      // debugger
+      const effectsToRun = new Set()
+      effects && effects.forEach((effect) => {
+        if(effect !== activeEffect) {
+          effectsToRun.add(effect)
+        }
+      })
+      effectsToRun.forEach(effectFn => { // 新增
+        if(effectFn.options.scheduler) { // options已经有了默认值{}，所以不用加非判断，直接判断scheduler函数即可
+          effectFn.options.scheduler(effectFn)
+        } else {
+          effectFn()
+        }
+      })
+      // effects && effects.forEach(fn => fn())
+    }
+
+    function traverse(value, seen = new Set()) {
+      if(typeof value !== 'object' || value === null || seen.has(value)) return
+      seen.add(value)
+
+      for(const k in value) {
+        traverse(value[k], seen)
+      }
+
+      return value
+    }
+
+    function computed(getter) {
+      let value
+      let dirty = true
+      const effectFn = effect(getter, {
+        lazy: true,
+        scheduler() {
+          if(!dirty) {
+            dirty = true
+            trigger(obj, 'value')
+          }
+        }
+      })
+
+      const obj = {
+        get value() {
+          if(dirty) {
+            value = effectFn()
+            dirty = false
+          }
+          track(obj, 'value')
+          return value
+        }
+      }
+
+      return obj
+    }
+
+    function watch(source, cb) {
+      let getter
+      if(typeof source === "function") { // 可以接受getter
+        getter = source
+      } else {
+        getter = () => traverse(source)
+      }
+      effect(
+        () => getter(),
+        {
+          scheduler() {
+            cb()
+          }
+        }
+      )
+    }
+    watch(obj, () => {
+      console.log('obj变化');
+    })
+
+    watch(
+      () => obj.foo,
+      () => {
+        console.log("obj.foo 变化");
+      }
+    )
+
+    const sumRes = computed(() => obj.foo + obj.bar)
+    console.log(sumRes.value);
+    console.log(sumRes.value);
+    obj.foo++
+    console.log(sumRes.value);
+  </script>
+</body>
+</html>

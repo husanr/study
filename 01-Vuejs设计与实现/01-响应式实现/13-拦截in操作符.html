@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Document</title>
+</head>
+<body>
+  <script>
+    // Reflect
+    let activeEffect; // 全局变量存储副作用函数
+    const effectStack = []
+    function effect(fn, options = {}) { // effect用于注册副作用函数 新增options
+      const effectFn = () => {
+        cleanup(effectFn)
+        activeEffect = effectFn
+        effectStack.push(effectFn)
+        const res = fn() // 新增
+        effectStack.pop()
+        activeEffect = effectStack[effectStack.length - 1]
+
+        return res // 新增
+      }
+      effectFn.options = options // 新增
+      effectFn.deps = []
+      if(!options.lazy) {
+        effectFn()
+      }
+      return effectFn
+    }
+
+    function cleanup(effectFn) {
+      for(let i = 0; i < effectFn.deps.length; i++) {
+        const deps = effectFn.deps[i]
+        deps.delete(effectFn)
+      }
+      effectFn.deps.length = 0
+    }
+
+    function track(target, key) { // 获取值
+      if(!activeEffect) return // 如果没有副作用直接return
+      let depsMap = bucket.get(target) // 根据target取出对应的depsMap
+      if(!depsMap) {
+        bucket.set(target, (depsMap = new Map())) // 如果depsMap不存在就新建一个Map并与target相关联
+      }
+      let deps = depsMap.get(key)
+      if(!deps) {
+        depsMap.set(key, (deps = new Set()))
+      }
+      deps.add(activeEffect)
+      activeEffect.deps.push(deps)
+    }
+    
+    function trigger(target, key) { // 设置值
+      const depsMap = bucket.get(target)
+      if(!depsMap) return
+      const effects = depsMap.get(key)
+      const effectsToRun = new Set()
+      effects && effects.forEach((effect) => {
+        if(effect !== activeEffect) {
+          effectsToRun.add(effect)
+        }
+      })
+      effectsToRun.forEach(effectFn => { // 新增
+        if(effectFn.options.scheduler) { // options已经有了默认值{}，所以不用加非判断，直接判断scheduler函数即可
+          effectFn.options.scheduler(effectFn)
+        } else {
+          effectFn()
+        }
+      })
+    }
+
+    let bucket = new WeakMap()
+    const data = { foo: 1, get bar() { return this.foo } }
+    const obj = new Proxy(data, {
+      get(target, key, receiver){
+        track(target, key)
+        // return target[key]
+        return Reflect.get(target, key, receiver)
+      },
+      set(target, key, newVal, receiver) {
+        trigger(target, key)
+        return Reflect.set(target, key, newVal, receiver)
+      },
+
+      // 拦截in操作符
+      has(target, key) {
+        track(target, key)
+        console.log("触发has");
+        return Reflect.has(target, key)
+      }
+    })
+
+    effect(() => {
+      'foo' in obj
+    })
+
+    effect(() => {
+      console.log(obj.bar);
+    })
+
+    obj.foo++
+
+  </script>
+</body>
+</html>

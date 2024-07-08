@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Document</title>
+</head>
+<body>
+  <script>
+    // demo4
+    let activeEffect; // 全局变量存储副作用函数
+    const effectStack = []
+    function effect(fn) { // effect用于注册副作用函数
+      const effectFn = () => {
+        // console.log(effectFn);
+        // debugger
+        cleanup(effectFn)
+        // console.log(effectFn);
+        activeEffect = effectFn
+        effectStack.push(effectFn)
+        fn()
+        effectStack.pop()
+        activeEffect = effectStack[effectStack.length - 1]
+      }
+      effectFn.deps = []
+      effectFn()
+    }
+
+    function cleanup(effectFn) {
+      for(let i = 0; i < effectFn.deps.length; i++) {
+        const deps = effectFn.deps[i]
+        deps.delete(effectFn)
+      }
+      effectFn.deps.length = 0
+    }
+
+    let bucket = new WeakMap()
+    const data = { foo: true, bar: true, count: 0 }
+    const obj = new Proxy(data, {
+      get(target, key){
+        track(target, key)
+        return target[key]
+      },
+      set(target, key, newVal) {
+        target[key] = newVal
+        trigger(target, key)
+      }
+    })
+
+    function track(target, key) {
+      if(!activeEffect) return // 如果没有副作用直接return
+      let depsMap = bucket.get(target) // 根据target取出对应的depsMap
+      if(!depsMap) {
+        bucket.set(target, (depsMap = new Map())) // 如果depsMap不存在就新建一个Map并与target相关联
+        // console.log(bucket);
+      }
+      let deps = depsMap.get(key)
+      if(!deps) {
+        depsMap.set(key, (deps = new Set()))
+      }
+      deps.add(activeEffect)
+      activeEffect.deps.push(deps)
+    }
+    
+    function trigger(target, key) {
+      const depsMap = bucket.get(target)
+      if(!depsMap) return
+      const effects = depsMap.get(key)
+      // debugger
+      const effectsToRun = new Set(effects)
+      effectsToRun.forEach(effectFn => effectFn())
+      // effects && effects.forEach(fn => fn())
+    }
+
+    // debugger
+    effect(function effect1() {
+      console.log("effectFn1 执行");
+      effect(function effect2() {
+        console.log("effectFn2 执行");
+        temp2 = obj.bar
+      })
+      temp1 = obj.foo
+    })
+
+    setTimeout(() => {
+      obj.foo = false
+    }, 1000);
+  </script>
+</body>
+</html>
