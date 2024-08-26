@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Document</title>
+</head>
+<body>
+  <script>
+    function createRenderer(options) {
+      const {
+        createElement,
+        setElementText,
+        insert
+      } = options
+      function patch(n1, n2, container) {
+        if(!n1) {
+          // 挂载节点
+          mountElement(n2, container)
+        } else {
+          // 打补丁
+        }
+      }
+      function shouldSetAsProps(el, key, value) {
+        // 特殊处理
+        if(key === 'form' && el.target === 'INPUT') return false
+        // 兜底
+        return key in el
+      }
+      // 挂载元素
+      function mountElement(vnode, container) {
+        // 调用createElement
+        const el = createElement(vnode.type)
+        if(typeof vnode.children === 'string') {
+          setElementText(el, vnode.children)
+        } else if(Array.isArray(vnode.children)) { // 新增
+          // 如果children是数组， 遍历挂载
+          vnode.children.forEach(child => {
+            patch(null, child, el)
+          })
+        }
+
+        // 新增 处理属性的挂载
+        if(vnode.props) {
+          // 遍历属性对象
+          for(const key in vnode.props) {
+            const value = vnode.props[key]
+            if(shouldSetAsProps(el, key, value)) {
+              // 获取类型
+              const type = typeof el[key]
+              // 如果是布尔类型且为空，则设置默认值为true
+              if(type === 'boolean' && value === '') {
+                el[key] = true
+              } else {
+                el[key] = value
+              }
+            } else {
+              // 如果要设置的属性没有对应的DOM Properties ，则使用setAttribute函数设置属性
+              el.setAttribute(key, vnode.props[key])
+            }
+          }
+        }
+
+        insert(el, container)
+      }
+
+      function render(vnode, container) {
+        if(vnode) {
+          // 如果有新节点, 与旧节点一起传给patch函数进行比较，进行打补丁
+          patch(container._vnode, vnode, container)
+        } else {
+          // 旧节点存在，新节点不存在，那就是卸载操作，清空DOM
+          if(container._vnode) {
+            container.innerHTML = ''
+          }
+        }
+        // 将节点存储
+        container._vnode = vnode
+      }
+      return {
+        render
+      }
+    }
+
+    const vnode = {
+      type: 'h1',
+      children: 'hello world',
+      props: {
+        class: 'abc'
+      }
+    }
+    // const container = {
+    //   type: 'root'
+    // }
+    const container = document.body
+    // 创建渲染器
+    const renderer = createRenderer({
+      // 创建元素
+      createElement(tag) {
+        // 自定义内容1
+        return document.createElement(tag)
+        // 自定义内容2
+        // return { tag }
+      },
+      // 设置节点内容
+      setElementText(el, text) {
+        // 自定义内容1
+        el.textContent = text
+        // 自定义内容2
+        // return { text }
+      },
+      // 添加元素
+      insert(el, parent, anchor = null) {
+        // 自定义内容1
+        parent.insertBefore(el, anchor)
+        // 自定义内容2
+        // parent.children = el
+      }
+    })
+    renderer.render(vnode, container)
+  </script>
+</body>
+</html>
